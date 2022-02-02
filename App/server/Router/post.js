@@ -1,30 +1,37 @@
 var express = require("express");
 const { Counter } = require("../Model/Counter");
 const { Post } = require("../Model/Post");
+const { User } = require("../Model/User");
 var router = express.Router();
 const multer = require("multer");
 const setUpload = require("../util/upload.js");
 
 router.post("/submit", (req, res) => {
+  let temp = {
+    title: req.body.title,
+    content: req.body.content,
+    image: req.body.image,
+  };
   Counter.findOne({ name: "counter" })
     .exec()
     .then((counter) => {
-      req.body.postNum = counter.postNum;
-      const communityPost = new Post({
-        title: req.body.title,
-        content: req.body.content,
-        postNum: req.body.postNum,
-        image: req.body.image,
-      });
-      communityPost
-        .save()
-        .then(() => {
-          Counter.updateOne({ name: "counter" }, { $inc: { postNum: 1 } }).then(
-            res.status(200).json({ success: true })
-          );
-        })
-        .catch((err) => {
-          res.status(400).json({ success: false, err });
+      temp.postNum = counter.postNum;
+      User.findOne({ uid: req.body.uid })
+        .exec()
+        .then((userInfo) => {
+          temp.author = userInfo._id;
+          const communityPost = new Post(temp);
+          communityPost
+            .save()
+            .then(() => {
+              Counter.updateOne(
+                { name: "counter" },
+                { $inc: { postNum: 1 } }
+              ).then(res.status(200).json({ success: true }));
+            })
+            .catch((err) => {
+              res.status(400).json({ success: false, err });
+            });
         });
     })
     .catch((err) => {
@@ -33,7 +40,22 @@ router.post("/submit", (req, res) => {
 });
 
 router.post("/list", (req, res) => {
-  Post.find()
+  let sort = {};
+  if (req.body.sort === "최신순") {
+    sort.createdAt = -1;
+  } else {
+    sort.repleNum = -1;
+  }
+  Post.find({
+    $or: [
+      { title: { $regex: req.body.SearchTerm } },
+      { content: { $regex: req.body.SearchTerm } },
+    ],
+  })
+    .populate("author")
+    .sort(sort)
+    .skip(req.body.skip)
+    .limit(5)
     .exec()
     .then((doc) => {
       res.status(200).json({ success: true, postList: doc });
@@ -44,6 +66,7 @@ router.post("/list", (req, res) => {
 });
 router.post("/detail", (req, res) => {
   Post.findOne({ postNum: Number(req.body.postNum) })
+    .populate("author")
     .exec()
     .then((doc) => {
       res.status(200).json({ success: true, post: doc });
